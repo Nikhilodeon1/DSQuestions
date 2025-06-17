@@ -303,7 +303,7 @@ export default function HomePage() {
                 )}
               </>
             ) : (
-              <p>No questions found.</p>
+              <p>Fetching Questions...</p>
             )}
           </div>
 
