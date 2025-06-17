@@ -30,55 +30,78 @@ export default function HomePage() {
   const [data, setData] = useState<Data | null>(null);
   const [subject, setSubject] = useState<"Math" | "English">("Math");
   const [difficulty, setDifficulty] = useState<"All" | "Easy" | "Medium" | "Hard">("All");
+  const [selectedDomain, setSelectedDomain] = useState<string>("All");
+  const [mathDomains, setMathDomains] = useState<string[]>([]);
+  const [englishDomains, setEnglishDomains] = useState<string[]>([]);
   const [filteredQuestions, setFilteredQuestions] = useState<Question[]>([]);
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
 
-  const [correctCount, setCorrectCount] = useState(0);
-  const [wrongCount, setWrongCount] = useState(0);
+  const [correctCount, setCorrectCount] = useState<number>(0);
+  const [wrongCount, setWrongCount] = useState<number>(0);
+
+  const totalAttempts = correctCount + wrongCount;
+  const correctPercentage = totalAttempts === 0 ? 0 : (correctCount / totalAttempts) * 100;
+  const wrongPercentage = totalAttempts === 0 ? 0 : (wrongCount / totalAttempts) * 100;
 
   useEffect(() => {
-    fetch(DATA_URL)
-      .then((res) => res.json())
-      .then((json) => setData(json))
-      .catch((err) => {
-        console.error("Failed to fetch questions", err);
-        setData({ math: [], english: [] });
-      });
+    async function fetchData() {
+      try {
+        const response = await fetch(DATA_URL);
+        const jsonData: Data = await response.json();
+        setData(jsonData);
+
+        const uniqueMathDomains = Array.from(new Set(jsonData.math.map((q) => q.domain)));
+        setMathDomains(["All", ...uniqueMathDomains]);
+
+        const uniqueEnglishDomains = Array.from(new Set(jsonData.english.map((q) => q.domain)));
+        setEnglishDomains(["All", ...uniqueEnglishDomains]);
+      } catch (error) {
+        console.error("Error fetching data:", error);
+      }
+    }
+    fetchData();
   }, []);
 
   useEffect(() => {
-    if (!data) return;
-    const key = subject.toLowerCase() as keyof Data;
-    const all = data[key] || [];
+    if (data) {
+      setSelectedDomain("All");
+    }
+  }, [subject, data]);
 
-    const filtered =
-      difficulty === "All"
-        ? all
-        : all.filter((q) => q.difficulty.toLowerCase() === difficulty.toLowerCase());
+  useEffect(() => {
+    if (data) {
+      let currentSubjectQuestions: Question[] = subject === "Math" ? data.math : data.english;
 
-    setFilteredQuestions(filtered);
+      let newFilteredQuestions = currentSubjectQuestions;
 
-    if (filtered.length > 0) {
-      const randomIndex = Math.floor(Math.random() * filtered.length);
-      setCurrentQuestion(filtered[randomIndex]);
+      if (difficulty !== "All") {
+        newFilteredQuestions = newFilteredQuestions.filter((q) => q.difficulty === difficulty);
+      }
+
+      if (selectedDomain !== "All") {
+        newFilteredQuestions = newFilteredQuestions.filter((q) => q.domain === selectedDomain);
+      }
+
+      setFilteredQuestions(newFilteredQuestions);
+
+      if (newFilteredQuestions.length > 0) {
+        const randomIndex = Math.floor(Math.random() * newFilteredQuestions.length);
+        setCurrentQuestion(newFilteredQuestions[randomIndex]);
+      } else {
+        setCurrentQuestion(null);
+      }
+
       setSelectedAnswer(null);
       setIsCorrect(null);
-    } else {
-      setCurrentQuestion(null);
     }
-  }, [data, subject, difficulty]);
+  }, [data, subject, difficulty, selectedDomain]);
 
   const handleAnswer = (choice: string) => {
-    if (!currentQuestion || selectedAnswer !== null) return;
-
     setSelectedAnswer(choice);
-
-    const isAnswerCorrect = choice === currentQuestion.question.correct_answer;
-    setIsCorrect(isAnswerCorrect);
-
-    if (isAnswerCorrect) {
+    setIsCorrect(choice === currentQuestion?.question.correct_answer);
+    if (choice === currentQuestion?.question.correct_answer) {
       setCorrectCount((prev) => prev + 1);
     } else {
       setWrongCount((prev) => prev + 1);
@@ -89,100 +112,166 @@ export default function HomePage() {
     if (filteredQuestions.length > 0) {
       const randomIndex = Math.floor(Math.random() * filteredQuestions.length);
       setCurrentQuestion(filteredQuestions[randomIndex]);
-      setSelectedAnswer(null);
-      setIsCorrect(null);
+    } else {
+      setCurrentQuestion(null);
     }
+    setSelectedAnswer(null);
+    setIsCorrect(null);
   };
 
-  const totalAttempts = correctCount + wrongCount;
-  const correctPercentage = totalAttempts > 0 ? (correctCount / totalAttempts) * 100 : 0;
-  const wrongPercentage = totalAttempts > 0 ? 100 - correctPercentage : 0;
-
   return (
-    <div style={{ backgroundColor: "#ffffff", minHeight: "100vh" }}>
-      <nav style={{ backgroundColor: "#0070f3", color: "white", padding: "15px 30px", fontSize: 24, fontWeight: "bold" }}>
+    <div style={{ fontFamily: "Arial, sans-serif", backgroundColor: "white", color: "black", minHeight: "100vh" }}>
+      <nav
+        style={{
+          background: "#007bff",
+          padding: 15,
+          textAlign: "center",
+          fontSize: 24,
+          marginBottom: 20,
+          fontWeight: "bold",
+          color: "white",
+        }}
+      >
         DailySAT
       </nav>
 
-      <main style={{ maxWidth: 1200, margin: "auto", padding: 20, fontFamily: "Arial, sans-serif", display: "flex", flexDirection: "column", gap: 20 }}>
-        <div style={{ color: "black" }}>
-          <label>
-            Subject: 
-            <select value={subject} onChange={(e) => setSubject(e.target.value as "Math" | "English")} style={{ color: "black", border: "1px solid #ccc", borderRadius: 4, padding: 4 }}>
+      <main style={{ padding: 20 }}>
+        <div style={{ display: "flex", justifyContent: "space-around", marginBottom: 20 }}>
+          <div style={{ flex: 1, marginRight: 10 }}>
+            <label htmlFor="subject-select" style={{ marginRight: 10 }}>
+              Subject:
+            </label>
+            <select
+              id="subject-select"
+              onChange={(e) => setSubject(e.target.value as "Math" | "English")}
+              value={subject}
+              style={{ padding: 8, borderRadius: 5, border: "1px solid #ccc" }}
+            >
               <option value="Math">Math</option>
               <option value="English">English</option>
             </select>
-          </label>
+          </div>
 
-          <label style={{ marginLeft: 20 }}>
-            Difficulty: 
-            <select value={difficulty} onChange={(e) => setDifficulty(e.target.value as "All" | "Easy" | "Medium" | "Hard")} style={{ color: "black", border: "1px solid #ccc", borderRadius: 4, padding: 4 }}>
+          <div style={{ flex: 1, marginRight: 10 }}>
+            <label htmlFor="difficulty-select" style={{ marginRight: 10 }}>
+              Difficulty:
+            </label>
+            <select
+              id="difficulty-select"
+              onChange={(e) => setDifficulty(e.target.value as "All" | "Easy" | "Medium" | "Hard")}
+              value={difficulty}
+              style={{ padding: 8, borderRadius: 5, border: "1px solid #ccc" }}
+            >
               <option value="All">All</option>
               <option value="Easy">Easy</option>
               <option value="Medium">Medium</option>
               <option value="Hard">Hard</option>
             </select>
-          </label>
+          </div>
+
+          <div style={{ flex: 1 }}>
+            <label htmlFor="domain-select" style={{ marginRight: 10 }}>
+              Domain:
+            </label>
+            <select
+              id="domain-select"
+              onChange={(e) => setSelectedDomain(e.target.value)}
+              value={selectedDomain}
+              style={{ padding: 8, borderRadius: 5, border: "1px solid #ccc" }}
+            >
+              {(subject === "Math" ? mathDomains : englishDomains).map((domain) => (
+                <option key={domain} value={domain}>
+                  {domain}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <div style={{ display: "flex", gap: 20 }}>
-          <div style={{ flex: 3, border: "1px solid #ccc", padding: 20, borderRadius: 8, backgroundColor: "#f9f9f9", color: "black" }}>
+          <div
+            style={{
+              flex: 3,
+              border: "1px solid #ccc",
+              padding: 20,
+              borderRadius: 8,
+              backgroundColor: "#f9f9f9",
+              color: "black",
+            }}
+          >
             {currentQuestion ? (
               <>
-                <h3>
-                  {currentQuestion.domain} — {currentQuestion.difficulty}
-                </h3>
-
-                <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]} components={{ p: ({ children }) => <p style={{ color: "black" }}>{children}</p> }}>
-                  {currentQuestion.question.question}
-                </ReactMarkdown>
-
-                <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
-                  {Object.entries(currentQuestion.question.choices).map(([letter, text]) => {
-                    const isSelected = selectedAnswer === letter;
-                    const isAnswer = currentQuestion.question.correct_answer === letter;
-
-                    let bg = "#fff";
-                    if (selectedAnswer !== null) {
-                      if (isSelected && isAnswer) bg = "#c8f7c5";
-                      else if (isSelected) bg = "#f7c5c5";
-                      else if (isAnswer) bg = "#c8f7c5";
-                    }
-
-                    return (
-                      <button
-                        key={letter}
-                        onClick={() => handleAnswer(letter)}
-                        disabled={selectedAnswer !== null}
-                        style={{ padding: 10, borderRadius: 6, border: "1px solid #aaa", backgroundColor: bg, cursor: selectedAnswer ? "default" : "pointer", textAlign: "left", color: "black" }}
-                      >
-                        <strong>{letter}.</strong> {" "}
-                        <ReactMarkdown
-                          remarkPlugins={subject === "Math" ? [remarkMath] : []}
-                          rehypePlugins={subject === "Math" ? [rehypeKatex] : []}
-                          components={{ p: ({ children }) => <span>{children}</span> }}
-                        >
-                          {text}
-                        </ReactMarkdown>
-                      </button>
-                    );
-                  })}
+                <p style={{ fontSize: 16, marginBottom: 10, color: "#555" }}>
+                  <strong>Domain:</strong> {currentQuestion.domain} | <strong>Difficulty:</strong> {currentQuestion.difficulty}
+                </p>
+                <div style={{ marginBottom: 20, fontSize: 18 }}>
+                  <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                    {currentQuestion.question.question}
+                  </ReactMarkdown>
                 </div>
-
-                {selectedAnswer !== null && (
+                <div>
+                  {Object.entries(currentQuestion.question.choices).map(([key, value]) => (
+                    <button
+                      key={key}
+                      onClick={() => handleAnswer(key)}
+                      disabled={selectedAnswer !== null}
+                      style={{
+                        display: "block",
+                        width: "100%",
+                        padding: 10,
+                        marginBottom: 10,
+                        border: `1px solid ${selectedAnswer === key ? "#007bff" : "#ccc"}`,
+                        borderRadius: 5,
+                        backgroundColor:
+                          selectedAnswer === key
+                            ? isCorrect
+                              ? "#d4edda"
+                              : "#f8d7da"
+                            : selectedAnswer !== null && key === currentQuestion.question.correct_answer
+                            ? "#d4edda"
+                            : "#e9ecef",
+                        cursor: selectedAnswer === null ? "pointer" : "not-allowed",
+                        textAlign: "left",
+                        fontSize: 16,
+                        color: "black",
+                      }}
+                    >
+                      <strong>{key}:</strong>{" "}
+                      <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                        {value}
+                      </ReactMarkdown>
+                    </button>
+                  ))}
+                </div>
+                {selectedAnswer && (
                   <div style={{ marginTop: 20 }}>
                     {isCorrect ? (
-                      <p style={{ color: "green", fontWeight: "bold" }}>✅ Correct!</p>
+                      <p style={{ color: "green", fontWeight: "bold" }}>Correct!</p>
                     ) : (
                       <>
-                        <p style={{ color: "red", fontWeight: "bold" }}>❌ Incorrect.</p>
-                        <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]} components={{ p: ({ children }) => <p style={{ color: "black" }}>{children}</p> }}>
-                          {`**Explanation:** ${currentQuestion.question.explanation}`}
-                        </ReactMarkdown>
+                        <p style={{ color: "red", fontWeight: "bold" }}>Incorrect.</p>
+                        <p style={{ marginTop: 10, fontSize: 14, color: "#333" }}>
+                          <strong style={{ color: "black" }}>Explanation:</strong>{" "}
+                          <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                            {currentQuestion.question.explanation}
+                          </ReactMarkdown>
+                        </p>
                       </>
                     )}
-                    <button onClick={showNext} style={{ marginTop: 10, padding: "8px 12px", borderRadius: 4, backgroundColor: "#0070f3", color: "white", border: "none", cursor: "pointer" }}>
-                      Next Question →
+                    <button
+                      onClick={showNext}
+                      style={{
+                        padding: "10px 20px",
+                        backgroundColor: "#007bff",
+                        color: "white",
+                        border: "none",
+                        borderRadius: 5,
+                        cursor: "pointer",
+                        marginTop: 15,
+                        fontSize: 16,
+                      }}
+                    >
+                      Next Question
                     </button>
                   </div>
                 )}
@@ -192,7 +281,18 @@ export default function HomePage() {
             )}
           </div>
 
-          <div style={{ flex: 1, border: "1px solid #ccc", padding: 20, borderRadius: 8, backgroundColor: "#f9f9f9", height: "fit-content", alignSelf: "start", color: "black" }}>
+          <div
+            style={{
+              flex: 1,
+              border: "1px solid #ccc",
+              padding: 20,
+              borderRadius: 8,
+              backgroundColor: "#f9f9f9",
+              height: "fit-content",
+              alignSelf: "start",
+              color: "black",
+            }}
+          >
             <h3>📊 Your Score</h3>
             <p>
               ✅ Correct: <strong>{correctCount}</strong>
