@@ -120,24 +120,43 @@ export default function HomePage() {
   };
 
   return (
-    <div style={{ fontFamily: "Arial, sans-serif", backgroundColor: "white", color: "black", minHeight: "100vh" }}>
+    <div
+      style={{
+        fontFamily: "Arial, sans-serif",
+        backgroundColor: "white",
+        color: "black",
+        minHeight: "100vh",
+        padding: "20px 200px",
+        boxSizing: "border-box",
+      }}
+    >
       <nav
         style={{
           background: "#007bff",
           padding: 15,
           textAlign: "center",
           fontSize: 24,
-          marginBottom: 20,
+          marginBottom: 30,
           fontWeight: "bold",
           color: "white",
+          borderRadius: 8,
         }}
       >
         DailySAT
       </nav>
 
-      <main style={{ padding: 20 }}>
-        <div style={{ display: "flex", justifyContent: "space-around", marginBottom: 20 }}>
-          <div style={{ flex: 1, marginRight: 10 }}>
+      <main>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "row",
+            alignItems: "center",
+            marginBottom: 30,
+            gap: 20,
+            flexWrap: "wrap",
+          }}
+        >
+          <div>
             <label htmlFor="subject-select" style={{ marginRight: 10 }}>
               Subject:
             </label>
@@ -152,7 +171,7 @@ export default function HomePage() {
             </select>
           </div>
 
-          <div style={{ flex: 1, marginRight: 10 }}>
+          <div>
             <label htmlFor="difficulty-select" style={{ marginRight: 10 }}>
               Difficulty:
             </label>
@@ -169,7 +188,7 @@ export default function HomePage() {
             </select>
           </div>
 
-          <div style={{ flex: 1 }}>
+          <div>
             <label htmlFor="domain-select" style={{ marginRight: 10 }}>
               Domain:
             </label>
@@ -188,7 +207,7 @@ export default function HomePage() {
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 20 }}>
+        <div style={{ display: "flex", gap: 30 }}>
           <div
             style={{
               flex: 3,
@@ -202,7 +221,8 @@ export default function HomePage() {
             {currentQuestion ? (
               <>
                 <p style={{ fontSize: 16, marginBottom: 10, color: "#555" }}>
-                  <strong>Domain:</strong> {currentQuestion.domain} | <strong>Difficulty:</strong> {currentQuestion.difficulty}
+                  <strong>Domain:</strong> {currentQuestion.domain} | <strong>Difficulty:</strong>{" "}
+                  {currentQuestion.difficulty}
                 </p>
                 <div style={{ marginBottom: 20, fontSize: 18 }}>
                   <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
@@ -236,10 +256,16 @@ export default function HomePage() {
                         color: "black",
                       }}
                     >
-                      <strong>{key}:</strong>{" "}
-                      <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-                        {value}
-                      </ReactMarkdown>
+                      <ReactMarkdown
+  remarkPlugins={[remarkMath]}
+  rehypePlugins={[rehypeKatex]}
+  components={{
+    p: ({ node, ...props }) => <span {...props} />,
+  }}
+>
+  {`${key}. ${value}`}
+</ReactMarkdown>
+
                     </button>
                   ))}
                 </div>
