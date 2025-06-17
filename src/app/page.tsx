@@ -120,236 +120,113 @@ export default function HomePage() {
   };
 
   return (
-    <div
-      style={{
-        fontFamily: "Arial, sans-serif",
-        backgroundColor: "white",
-        color: "black",
-        minHeight: "100vh",
-        padding: "20px 200px",
-        boxSizing: "border-box",
-      }}
-    >
-      <nav
-        style={{
-          background: "#007bff",
-          padding: 15,
-          textAlign: "center",
-          fontSize: 24,
-          marginBottom: 30,
-          fontWeight: "bold",
-          color: "white",
-          borderRadius: 8,
-        }}
-      >
-        DailySAT
-      </nav>
+    <div className="flex min-h-screen bg-white text-black font-sans p-10">
+      <div className="w-1/3 space-y-4">
+        <h2 className="text-3xl font-bold">Practice</h2>
 
-      <main>
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "row",
-            alignItems: "center",
-            marginBottom: 30,
-            gap: 20,
-            flexWrap: "wrap",
-          }}
-        >
-          <div>
-            <label htmlFor="subject-select" style={{ marginRight: 10 }}>
-              Subject:
-            </label>
+        {[ 
+          { label: "SUBJECT", value: subject, setValue: setSubject, options: ["Math", "English"] },
+          { label: "DIFFICULTY", value: difficulty, setValue: setDifficulty, options: ["All", "Easy", "Medium", "Hard"] },
+          {
+            label: "DOMAIN",
+            value: selectedDomain,
+            setValue: setSelectedDomain,
+            options: subject === "Math" ? mathDomains : englishDomains,
+          },
+        ].map(({ label, value, setValue, options }) => (
+          <div className="space-y-2 bg-blue-50 p-4 rounded-lg" key={label}>
+            <label className="text-xs font-semibold text-blue-700">{label}</label>
             <select
-              id="subject-select"
-              onChange={(e) => setSubject(e.target.value as "Math" | "English")}
-              value={subject}
-              style={{ padding: 8, borderRadius: 5, border: "1px solid #ccc" }}
+              value={value}
+              onChange={(e) => setValue(e.target.value as typeof value)}  
+              className="w-full p-2 border rounded-md"
             >
-              <option value="Math">Math</option>
-              <option value="English">English</option>
-            </select>
-          </div>
-
-          <div>
-            <label htmlFor="difficulty-select" style={{ marginRight: 10 }}>
-              Difficulty:
-            </label>
-            <select
-              id="difficulty-select"
-              onChange={(e) => setDifficulty(e.target.value as "All" | "Easy" | "Medium" | "Hard")}
-              value={difficulty}
-              style={{ padding: 8, borderRadius: 5, border: "1px solid #ccc" }}
-            >
-              <option value="All">All</option>
-              <option value="Easy">Easy</option>
-              <option value="Medium">Medium</option>
-              <option value="Hard">Hard</option>
-            </select>
-          </div>
-
-          <div>
-            <label htmlFor="domain-select" style={{ marginRight: 10 }}>
-              Domain:
-            </label>
-            <select
-              id="domain-select"
-              onChange={(e) => setSelectedDomain(e.target.value)}
-              value={selectedDomain}
-              style={{ padding: 8, borderRadius: 5, border: "1px solid #ccc" }}
-            >
-              {(subject === "Math" ? mathDomains : englishDomains).map((domain) => (
-                <option key={domain} value={domain}>
-                  {domain}
+              {options.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
                 </option>
               ))}
             </select>
           </div>
+        ))}
+
+        {[
+          { label: "Correct Answers", value: correctCount },
+          { label: "Incorrect Answers", value: wrongCount },
+        ].map(({ label, value }) => (
+          <div className="bg-blue-50 p-4 rounded-lg" key={label}>
+            <h3 className="text-sm font-bold mb-2">{label}:</h3>
+            <div className="text-3xl font-semibold">{value}</div>
+          </div>
+        ))}
+
+        <div className="bg-blue-50 p-4 rounded-lg">
+          <h3 className="text-sm font-bold mb-2">Accuracy:</h3>
+          <div className="w-full h-3 bg-gray-300 rounded-full overflow-hidden">
+            <div className="h-full bg-green-500" style={{ width: `${correctPercentage}%` }}></div>
+            <div className="h-full bg-red-500" style={{ width: `${wrongPercentage}%` }}></div>
+          </div>
         </div>
+      </div>
 
-        <div style={{ display: "flex", gap: 30 }}>
-          <div
-            style={{
-              flex: 3,
-              border: "1px solid #ccc",
-              padding: 20,
-              borderRadius: 8,
-              backgroundColor: "#f9f9f9",
-              color: "black",
-            }}
-          >
-            {currentQuestion ? (
-              <>
-                <p style={{ fontSize: 16, marginBottom: 10, color: "#555" }}>
-                  <strong>Domain:</strong> {currentQuestion.domain} | <strong>Difficulty:</strong>{" "}
-                  {currentQuestion.difficulty}
-                </p>
-                <div style={{ marginBottom: 20, fontSize: 18 }}>
+      <div className="w-2/3 pl-10">
+        {currentQuestion ? (
+          <div className="space-y-4">
+            <div className="text-lg font-semibold">{currentQuestion.domain} — {currentQuestion.difficulty}</div>
+            <div className="prose max-w-none">
+              <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                {currentQuestion.question.question}
+              </ReactMarkdown>
+            </div>
+
+            <div className="space-y-2">
+              {Object.entries(currentQuestion.question.choices).map(([key, value]) => (
+                <button
+                  key={key}
+                  onClick={() => handleAnswer(key)}
+                  disabled={selectedAnswer !== null}
+                  className={`block w-full text-left p-3 rounded-lg border transition ${
+                    selectedAnswer === key
+                      ? isCorrect
+                        ? "bg-green-100 border-green-400"
+                        : "bg-red-100 border-red-400"
+                      : selectedAnswer && key === currentQuestion.question.correct_answer
+                      ? "bg-green-100 border-green-400"
+                      : "bg-white border-gray-300"
+                  }`}
+                >
                   <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-                    {currentQuestion.question.question}
+                    {`${key}. ${value}`}
                   </ReactMarkdown>
-                </div>
-                <div>
-                  {Object.entries(currentQuestion.question.choices).map(([key, value]) => (
-                    <button
-                      key={key}
-                      onClick={() => handleAnswer(key)}
-                      disabled={selectedAnswer !== null}
-                      style={{
-                        display: "block",
-                        width: "100%",
-                        padding: 10,
-                        marginBottom: 10,
-                        border: `1px solid ${selectedAnswer === key ? "#007bff" : "#ccc"}`,
-                        borderRadius: 5,
-                        backgroundColor:
-                          selectedAnswer === key
-                            ? isCorrect
-                              ? "#d4edda"
-                              : "#f8d7da"
-                            : selectedAnswer !== null && key === currentQuestion.question.correct_answer
-                            ? "#d4edda"
-                            : "#e9ecef",
-                        cursor: selectedAnswer === null ? "pointer" : "not-allowed",
-                        textAlign: "left",
-                        fontSize: 16,
-                        color: "black",
-                      }}
-                    >
-                      <ReactMarkdown
-  remarkPlugins={[remarkMath]}
-  rehypePlugins={[rehypeKatex]}
-  components={{
-    p: ({ node, ...props }) => <span {...props} />,
-  }}
->
-  {`${key}. ${value}`}
-</ReactMarkdown>
+                </button>
+              ))}
+            </div>
 
-                    </button>
-                  ))}
-                </div>
-                {selectedAnswer && (
-                  <div style={{ marginTop: 20 }}>
-                    {isCorrect ? (
-                      <p style={{ color: "green", fontWeight: "bold" }}>Correct!</p>
-                    ) : (
-                      <>
-                        <p style={{ color: "red", fontWeight: "bold" }}>Incorrect.</p>
-                        <p style={{ marginTop: 10, fontSize: 14, color: "#333" }}>
-                          <strong style={{ color: "black" }}>Explanation:</strong>{" "}
-                          <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-                            {currentQuestion.question.explanation}
-                          </ReactMarkdown>
-                        </p>
-                      </>
-                    )}
-                    <button
-                      onClick={showNext}
-                      style={{
-                        padding: "10px 20px",
-                        backgroundColor: "#007bff",
-                        color: "white",
-                        border: "none",
-                        borderRadius: 5,
-                        cursor: "pointer",
-                        marginTop: 15,
-                        fontSize: 16,
-                      }}
-                    >
-                      Next Question
-                    </button>
+            {selectedAnswer && (
+              <div>
+                <p className={`font-bold ${
+                  isCorrect ? "text-green-600" : "text-red-600"
+                }`}>{isCorrect ? "Correct!" : "Incorrect."}</p>
+                {!isCorrect && (
+                  <div className="prose mt-2">
+                    <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                      {currentQuestion.question.explanation}
+                    </ReactMarkdown>
                   </div>
                 )}
-              </>
-            ) : (
-              <p>Fetching Questions...</p>
+                <button
+                  onClick={showNext}
+                  className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md"
+                >
+                  Next Question
+                </button>
+              </div>
             )}
           </div>
-
-          <div
-            style={{
-              flex: 1,
-              border: "1px solid #ccc",
-              padding: 20,
-              borderRadius: 8,
-              backgroundColor: "#f9f9f9",
-              height: "fit-content",
-              alignSelf: "start",
-              color: "black",
-            }}
-          >
-            <h3>📊 Your Score</h3>
-            <p>
-              ✅ Correct: <strong>{correctCount}</strong>
-              <br />
-              ❌ Incorrect: <strong>{wrongCount}</strong>
-            </p>
-            <div style={{ height: 10, backgroundColor: "#eee", borderRadius: 5, marginTop: 5, display: "flex" }}>
-              <div
-                style={{
-                  width: `${correctPercentage}%`,
-                  backgroundColor: totalAttempts > 0 ? "#4caf50" : "gray",
-                  height: "100%",
-                  borderTopLeftRadius: 5,
-                  borderBottomLeftRadius: 5,
-                  transition: "width 0.3s ease",
-                }}
-              />
-              <div
-                style={{
-                  width: `${wrongPercentage}%`,
-                  backgroundColor: totalAttempts > 0 ? "#f44336" : "gray",
-                  height: "100%",
-                  borderTopRightRadius: 5,
-                  borderBottomRightRadius: 5,
-                  transition: "width 0.3s ease",
-                }}
-              />
-            </div>
-          </div>
-        </div>
-      </main>
+        ) : (
+          <p>Fetching questions...</p>
+        )}
+      </div>
     </div>
   );
 }
