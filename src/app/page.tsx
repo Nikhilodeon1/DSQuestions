@@ -5,6 +5,14 @@ import ReactMarkdown from "react-markdown";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 
+// Add Font Awesome CSS
+const fontAwesomeLink = document.createElement('link');
+fontAwesomeLink.rel = 'stylesheet';
+fontAwesomeLink.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css';
+if (!document.head.querySelector('link[href*="font-awesome"]')) {
+  document.head.appendChild(fontAwesomeLink);
+}
+
 const DATA_URL = "https://api.jsonsilo.com/public/942c3c3b-3a0c-4be3-81c2-12029def19f5";
 
 type Question = {
@@ -47,6 +55,20 @@ export default function HomePage() {
 
   const totalAttempts = correctCount + wrongCount;
   const correctPercentage = totalAttempts === 0 ? 0 : (correctCount / totalAttempts) * 100;
+
+  // Create proper domain mapping
+  const domainDisplayMapping = {
+    // Math domains - map display names to actual domain values
+    "Algebra": "Algebra",
+    "Advanced Math": "Advanced Math", 
+    "Problem-Solving and Data Analysis": "Problem-Solving and Data Analysis",
+    "Geometry and Trigonometry": "Geometry and Trigonometry",
+    // English domains - map display names to actual domain values  
+    "Information and Ideas": "Information and Ideas",
+    "Craft and Structure": "Craft and Structure", 
+    "Expression of Ideas": "Expression of Ideas",
+    "Standard English Conventions": "Standard English Conventions"
+  };
 
   useEffect(() => {
     async function fetchData() {
@@ -204,7 +226,7 @@ export default function HomePage() {
         <div
           style={{
             width: "250px",
-            backgroundColor: "white",
+            backgroundColor: "#f8f9fa",
             padding: "20px",
             borderRadius: "8px",
             height: "fit-content",
@@ -229,19 +251,20 @@ export default function HomePage() {
                   MozAppearance: "none",
                   marginLeft: "8px",
                   marginRight: "3px",
-                  width: "70px"
+                  width: "100px"
                 }}
               >
-                <option value="Math">➗ Math</option>
+                <option value="Math">🧮 Math</option>
                 <option value="English">📖 English </option>
-              </select><span style={{ fontSize: "14px" }}>▾</span>
+              </select><i className="fas fa-chevron-down" style={{ fontSize: "14px" }}></i>
             </div>
           </div>
           <div style={{
             height: "2px",
             backgroundColor: "#6e6e6e",
-            width: "110px",
-            marginBottom: "20px"
+            width: "120px",
+            marginBottom: "20px",
+            marginLeft: "10px"
           }}></div>
 
           {/* Topics */}
@@ -262,16 +285,17 @@ export default function HomePage() {
                   boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
                 }}
               >
+                <i className="fas fa-list" style={{ marginRight: "8px" }}></i>
                 All Topics
               </button>
-              {currentDomainNames.map((domainName, index) => (
+              {currentDomainNames.map((domainName) => (
                 <button
                   key={domainName}
-                  onClick={() => setSelectedDomain(subject === "Math" ? mathDomains[index] : englishDomains[index])}
+                  onClick={() => setSelectedDomain(domainDisplayMapping[domainName as keyof typeof domainDisplayMapping])}
                   style={{
                     padding: "8px 12px",
-                    backgroundColor: selectedDomain === (subject === "Math" ? mathDomains[index] : englishDomains[index]) ? "#eff6ff" : "#eff6ff",
-                    border: selectedDomain === (subject === "Math" ? mathDomains[index] : englishDomains[index]) ? "2px solid #2196f3" : "0px solid #ddd",
+                    backgroundColor: selectedDomain === domainDisplayMapping[domainName as keyof typeof domainDisplayMapping] ? "#eff6ff" : "#eff6ff",
+                    border: selectedDomain === domainDisplayMapping[domainName as keyof typeof domainDisplayMapping] ? "2px solid #2196f3" : "0px solid #ddd",
                     borderRadius: "4px",
                     cursor: "pointer",
                     fontSize: "14px",
@@ -347,7 +371,7 @@ export default function HomePage() {
                 </div>
 
                 {/* Question */}
-                <div style={{ marginBottom: "20px", fontSize: "16px", lineHeight: "1.5", color: "#000000"}}>
+                <div style={{ marginBottom: "20px", fontSize: "16px", lineHeight: "1.5", color: "#000000", fontWeight: "bold"}}>
                   <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
                     {currentQuestion.question.question}
                   </ReactMarkdown>
@@ -499,7 +523,10 @@ export default function HomePage() {
                 boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
               }}
             >
-              <div style={{ fontSize: "16px", fontWeight: "bold", color: "#292F33", background: "#99c6ff", paddingTop: "10px", paddingBottom: "12px", textAlign: "left", paddingLeft: "8px", margin: "0px", borderTopLeftRadius: "8px",borderTopRightRadius: "8px"}}>Streak</div>
+              <div style={{ fontSize: "16px", fontWeight: "bold", color: "#292F33", background: "#99c6ff", paddingTop: "10px", paddingBottom: "12px", textAlign: "left", paddingLeft: "8px", margin: "0px", borderTopLeftRadius: "8px",borderTopRightRadius: "8px"}}>
+                <i className="fas fa-fire" style={{ marginRight: "8px" }}></i>
+                Streak
+              </div>
               <div style={{ fontSize: "48px", fontWeight: "bold", color: "#292F33", textAlign: "center"}}>
                 {currentStreak}
               </div>
@@ -514,7 +541,10 @@ export default function HomePage() {
                 boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
               }}
             >
-              <div style={{ fontSize: "16px", fontWeight: "bold", color: "#292F33", background: "#99c6ff", paddingTop: "10px", paddingBottom: "12px", textAlign: "left", paddingLeft: "8px", borderTopLeftRadius: "8px",borderTopRightRadius: "8px"}}>Accuracy</div>
+              <div style={{ fontSize: "16px", fontWeight: "bold", color: "#292F33", background: "#99c6ff", paddingTop: "10px", paddingBottom: "12px", textAlign: "left", paddingLeft: "8px", borderTopLeftRadius: "8px",borderTopRightRadius: "8px"}}>
+                <i className="fas fa-bullseye" style={{ marginRight: "8px" }}></i>
+                Accuracy
+              </div>
               <div style={{color: "black", padding:"8px"}}>
                 <div style={{marginTop: "5px",marginBottom: "5px"}}>✅ Correct: <strong>{correctCount}</strong><span style={{marginLeft:"25px"}}>❌ Incorrect: <strong>{wrongCount}</strong></span></div>
                 <div style={{
