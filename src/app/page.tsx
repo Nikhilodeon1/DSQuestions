@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react"; // Added useRef and useCallback
+import { useEffect, useState, useRef, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
-import remarkMath from "remark-math";
-import rehypeKatex from "rehype-katex";
-import 'katex/dist/katex.min.css';
+// Removed direct imports for remarkMath and rehypeKatex due to compilation errors
+// import remarkMath from "remark-math";
+// import rehypeKatex from "rehype-katex";
+// Removed direct CSS import for KaTeX to resolve font loading errors
+// import 'katex/dist/katex.min.css';
 
-// Add Font Awesome CSS
+// Add Font Awesome CSS dynamically
 if (typeof window !== 'undefined') {
     const fontAwesomeLink = document.createElement('link');
     fontAwesomeLink.rel = 'stylesheet';
@@ -14,11 +16,31 @@ if (typeof window !== 'undefined') {
     if (!document.head.querySelector('link[href*="font-awesome"]')) {
       document.head.appendChild(fontAwesomeLink);
     }
+
+    // Add KaTeX CSS dynamically to resolve font loading issues and CSS import errors
+    const katexLink = document.createElement('link');
+    katexLink.rel = 'stylesheet';
+    katexLink.href = 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css'; // Using a CDN for KaTeX CSS
+    if (!document.head.querySelector('link[href*="katex"]')) {
+      document.head.appendChild(katexLink);
+    }
+}
+
+// Declare global KaTeX object for TypeScript (optional, but good practice if not using ambient types)
+declare global {
+  interface Window {
+    katex: any;
+    renderMathInElement: (element: HTMLElement, options?: any) => void;
+  }
 }
 
 
+// API URLs
+const QUESTION_LIST_URL = "https://qbank-api.collegeboard.org/msreportingquestionbank-prod/questionbank/digital/get-questions";
+const QUESTION_DETAIL_URL = "https://qbank-api.collegeboard.org/msreportingquestionbank-prod/questionbank/digital/get-question";
 const DATA_URL = "https://api.jsonsilo.com/public/942c3c3b-3a0c-4be3-81c2-12029def19f5";
 
+// Type Definitions for Question and Data structures
 type Question = {
   id: string;
   domain: string;
@@ -48,6 +70,7 @@ type QuestionHistory = {
 };
 
 export default function HomePage() {
+  // State Management for question data and UI interactions
   const [data, setData] = useState<Data | null>(null);
   const [subject, setSubject] = useState<"Math" | "English">("Math");
   const [difficulty, setDifficulty] = useState<"All" | "Easy" | "Medium" | "Hard">("All");
@@ -60,337 +83,447 @@ export default function HomePage() {
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
   const [showExplanation, setShowExplanation] = useState<boolean>(false);
   const [isSubmitted, setIsSubmitted] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [fetchQuestionTrigger, setFetchQuestionTrigger] = useState(0); // State to force re-fetch of questions
 
+  // State Management for statistics
   const [correctCount, setCorrectCount] = useState<number>(0);
   const [wrongCount, setWrongCount] = useState<number>(0);
   const [currentStreak, setCurrentStreak] = useState<number>(0);
   const [maxStreak, setMaxStreak] = useState<number>(0);
-  
-  // Separate stats for Math and English
   const [mathCorrect, setMathCorrect] = useState<number>(0);
   const [mathWrong, setMathWrong] = useState<number>(0);
   const [englishCorrect, setEnglishCorrect] = useState<number>(0);
-  const [englishWrong, setEnglishWrong] = useState<number>(0);
-
-  // Predicted Scores
+  const [englishWrong, setEnglishRight] = useState<number>(0);
   const [predictedMathScore, setPredictedMathScore] = useState<number>(200);
   const [predictedEnglishScore, setPredictedEnglishScore] = useState<number>(200);
-  
-  // Toggle for expanded accuracy view
   const [isAccuracyExpanded, setIsAccuracyExpanded] = useState<boolean>(false);
 
-  // Progress tracking
+  // State Management for history and navigation
   const [questionHistory, setQuestionHistory] = useState<QuestionHistory[]>([]);
   const [currentHistoryIndex, setCurrentHistoryIndex] = useState<number | null>(null);
 
-  // Desmos Calculator State
+  // State Management for Desmos Calculator (position, size, drag/resize flags)
   const [showDesmos, setShowDesmos] = useState(false);
   const desmosRef = useRef<HTMLDivElement>(null);
   const [desmosPosition, setDesmosPosition] = useState({ x: 0, y: 0 });
-  const [desmosSize, setDesmosSize] = useState({ width: 400, height: 300 }); // Initial size
+  const [desmosSize, setDesmosSize] = useState({ width: 400, height: 300 });
   const isDragging = useRef(false);
   const isResizing = useRef(false);
   const dragOffset = useRef({ x: 0, y: 0 });
   const resizeStart = useRef({ x: 0, y: 0 });
   const initialSize = useRef({ width: 0, height: 0 });
+  
+  // Ref for the main question content area to apply KaTeX rendering for math
+  const questionContentRef = useRef<HTMLDivElement>(null);
 
+
+  // Mappings for displaying and converting domain and difficulty values
+  const domainDisplayMapping = {
+    "Algebra": "Algebra",
+    "Advanced Math": "Advanced Math",
+    "Problem-Solving and Data Analysis": "Problem-Solving and Data Analysis",
+    "Geometry and Trigonometry": "Geometry and Trigonometry",
+    "Information and Ideas": "Information and Ideas",
+    "Craft and Structure": "Craft and Structure",
+    "Expression of Ideas": "Expression of Ideas",
+    "Standard English Conventions": "Standard English Conventions"
+  };
+
+  const domainApiMapping: Record<string, string> = {
+    "Information and Ideas": "INI",
+    "Craft and Structure": "CAS",
+    "Expression of Ideas": "EOI",
+    "Standard English Conventions": "SEC",
+  };
+
+  const domainFullNameMapping: Record<string, string> = {
+    "INI": "Information and Ideas",
+    "CAS": "Craft and Structure",
+    "EOI": "Expression of Ideas",
+    "SEC": "Standard English Conventions",
+  };
+
+  const difficultyApiMapping: Record<string, string> = {
+      "Easy": "E",
+      "Medium": "M",
+      "Hard": "H"
+  };
+
+  const difficultyFullNameMapping: Record<string, string> = {
+      "E": "Easy",
+      "M": "Medium",
+      "H": "Hard"
+  };
+
+  // Calculated Statistics based on current state
   const totalAttempts = correctCount + wrongCount;
   const correctPercentage = totalAttempts === 0 ? 0 : (correctCount / totalAttempts) * 100;
-  
-  // Calculate subject-specific stats
   const mathTotal = mathCorrect + mathWrong;
   const mathPercentage = mathTotal === 0 ? 0 : (mathCorrect / mathTotal);
   const englishTotal = englishCorrect + englishWrong;
   const englishPercentage = englishTotal === 0 ? 0 : (englishCorrect / englishTotal);
 
-  // Effect to update predicted scores
-  useEffect(() => {
-    const newMathScore = Math.round((mathPercentage * 600) + 200);
-    setPredictedMathScore(newMathScore);
-    
-    const newEnglishScore = Math.round((englishPercentage * 600) + 200);
-    setPredictedEnglishScore(newEnglishScore);
-
-  }, [mathPercentage, englishPercentage]);
-
-  // Create proper domain mapping
-  const domainDisplayMapping = {
-    // Math domains - map display names to actual domain values
-    "Algebra": "Algebra",
-    "Advanced Math": "Advanced Math", 
-    "Problem-Solving and Data Analysis": "Problem-Solving and Data Analysis",
-    "Geometry and Trigonometry": "Geometry and Trigonometry",
-    // English domains - map display names to actual domain values  
-    "Information and Ideas": "Information and Ideas",
-    "Craft and Structure": "Craft and Structure", 
-    "Expression of Ideas": "Expression of Ideas",
-    "Standard English Conventions": "Standard English Conventions"
-  };
-
-  useEffect(() => {
-    async function fetchData() {
-      try {
-        const response = await fetch(DATA_URL);
-        const jsonData: Data = await response.json();
-        setData(jsonData);
-
-        const uniqueMathDomains = Array.from(new Set(jsonData.math.map((q) => q.domain)));
-        setMathDomains(uniqueMathDomains);
-
-        const uniqueEnglishDomains = Array.from(new Set(jsonData.english.map((q) => q.domain)));
-        setEnglishDomains(uniqueEnglishDomains);
-      } catch (error) {
-        console.error("Error fetching data:", error);
-      }
-    }
-    fetchData();
-  }, []);
-
-  useEffect(() => {
-    if (data) {
-      setSelectedDomain("All");
-    }
-  }, [subject, data]);
-
-  useEffect(() => {
-    if (data) {
-      let currentSubjectQuestions: Question[] = subject === "Math" ? data.math : data.english;
-
-      let newFilteredQuestions = currentSubjectQuestions;
-
-      if (difficulty !== "All") {
-        newFilteredQuestions = newFilteredQuestions.filter((q) => q.difficulty === difficulty);
-      }
-
-      if (selectedDomain !== "All") {
-        newFilteredQuestions = newFilteredQuestions.filter((q) => q.domain === selectedDomain);
-      }
-
-      setFilteredQuestions(newFilteredQuestions);
-
-      // Only set a new random question if we're not viewing from history
-      if (currentHistoryIndex === null && newFilteredQuestions.length > 0) {
-        const randomIndex = Math.floor(Math.random() * newFilteredQuestions.length);
-        setCurrentQuestion(newFilteredQuestions[randomIndex]);
-      } else if (newFilteredQuestions.length === 0) {
-        setCurrentQuestion(null);
-      }
-
-      // Reset states when not viewing from history
-      if (currentHistoryIndex === null) {
-        setSelectedAnswer(null);
-        setIsCorrect(null);
-        setShowExplanation(false);
-        setIsSubmitted(false);
-      }
-    }
-  }, [data, subject, difficulty, selectedDomain, currentHistoryIndex]);
-
-  const handleAnswerSelect = (choice: string) => {
-    if (isSubmitted) return;
-    
-    // Don't allow answer selection if viewing from history and already answered
-    if (currentHistoryIndex !== null) {
-      const historyItem = questionHistory[currentHistoryIndex];
-      if (historyItem.isAnswered) {
-        return;
-      }
-    }
-    setSelectedAnswer(choice);
-  };
-
-  const handleSubmit = () => {
-    if (!selectedAnswer || !currentQuestion) return;
-    
-    const correct = selectedAnswer === currentQuestion.question.correct_answer;
-    setIsCorrect(correct);
-    setIsSubmitted(true);
-    
-    if (correct) {
-      setCorrectCount((prev) => prev + 1);
-      if (subject === "Math") {
-        setMathCorrect((prev) => prev + 1);
-      } else {
-        setEnglishCorrect((prev) => prev + 1);
-      }
-      setCurrentStreak((prev) => {
-        const newStreak = prev + 1;
-        setMaxStreak((maxPrev) => Math.max(maxPrev, newStreak));
-        return newStreak;
-      });
-    } else {
-      setWrongCount((prev) => prev + 1);
-      if (subject === "Math") {
-        setMathWrong((prev) => prev + 1);
-      } else {
-        setEnglishWrong((prev) => prev + 1);
-      }
-      setCurrentStreak(0);
-      setShowExplanation(true);
-    }
-
-    // Update or add to question history
-    if (currentHistoryIndex !== null) {
-      // Update existing history item that was not answered before
-      setQuestionHistory(prev => prev.map((item, index) => 
-        index === currentHistoryIndex 
-          ? { ...item, userAnswer: selectedAnswer, isCorrect: correct, isAnswered: true }
-          : item
-      ));
-    } else {
-       // Check if the current question is already in history (e.g., marked for later)
-       const existingIndex = questionHistory.findIndex(item => item.question.id === currentQuestion.id);
-       if (existingIndex !== -1) {
-           setQuestionHistory(prev => prev.map((item, index) =>
-               index === existingIndex
-                   ? { ...item, userAnswer: selectedAnswer, isCorrect: correct, isAnswered: true }
-                   : item
-           ));
-       } else {
-           // Add new history item
-           const newHistoryItem: QuestionHistory = {
-               id: questionHistory.length + 1,
-               question: currentQuestion,
-               userAnswer: selectedAnswer,
-               isCorrect: correct,
-               isMarkedForLater: false,
-               isAnswered: true
-           };
-           setQuestionHistory(prev => [...prev, newHistoryItem]);
-       }
-    }
-  };
-
-  const showNext = () => {
-    // Reset to new random question mode
-    setCurrentHistoryIndex(null);
-    
-    if (filteredQuestions.length > 0) {
-        let nextQuestion;
-        // Avoid showing the same question twice in a row
-        do {
-            const randomIndex = Math.floor(Math.random() * filteredQuestions.length);
-            nextQuestion = filteredQuestions[randomIndex];
-        } while (currentQuestion && nextQuestion.id === currentQuestion.id && filteredQuestions.length > 1)
-        setCurrentQuestion(nextQuestion);
-    } else {
-      setCurrentQuestion(null);
-    }
+  /**
+   * Resets the UI states related to a single question's interaction.
+   */
+  const resetQuestionStates = () => {
     setSelectedAnswer(null);
     setIsCorrect(null);
     setShowExplanation(false);
     setIsSubmitted(false);
   };
 
-  const handleMarkForLater = () => {
-    if (!currentQuestion) return;
+  /**
+   * Fetches an English question from the CollegeBoard API.
+   * Handles filtering by domain and difficulty and maps the API response to local Question type.
+   * @param domain - The selected topic/domain (e.g., "All", "Information and Ideas").
+   * @param difficulty - The selected difficulty (e.g., "All", "Easy").
+   * @returns A promise that resolves to a Question object or null.
+   */
+  const fetchEnglishQuestionFromApi = useCallback(async (domain: string, difficulty: "All" | "Easy" | "Medium" | "Hard"): Promise<Question | null> => {
+    setIsLoading(true);
+    // Determine API domain parameter from selected domain. If "All", include all English API domains.
+    const apiDomain = domain === "All" 
+      ? "INI,CAS,EOI,SEC" 
+      : domainApiMapping[domain as keyof typeof domainApiMapping];
 
+    // Fetch the list of question IDs from the CollegeBoard API
+    const questionListResponse = await fetch(QUESTION_LIST_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ asmtEventId: 100, test: 1, domain: apiDomain }),
+    });
+
+    if (!questionListResponse.ok) {
+        console.error("Failed to fetch question list from API:", questionListResponse.statusText);
+        throw new Error("Failed to fetch question list from API");
+    }
+    let questionList = await questionListResponse.json();
+    if (questionList.length === 0) {
+        console.warn("API returned no questions for the given filters.");
+        return null;
+    }
+
+    // Filter the retrieved list by difficulty on the client-side
+    if (difficulty !== "All") {
+      const apiDifficulty = difficultyApiMapping[difficulty];
+      questionList = questionList.filter((q: any) => q.difficulty === apiDifficulty);
+    }
+    if (questionList.length === 0) {
+        console.warn("No questions found after client-side difficulty filtering.");
+        return null;
+    }
+
+    // Select a random question from the filtered list
+    const randomQuestionInfo = questionList[Math.floor(Math.random() * questionList.length)];
+    const externalId = randomQuestionInfo.external_id;
+
+    // Fetch the detailed question data using the external_id
+    const questionDetailResponse = await fetch(QUESTION_DETAIL_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ external_id: externalId }),
+    });
+
+    if (!questionDetailResponse.ok) {
+        console.error("Failed to fetch question detail from API:", questionDetailResponse.statusText);
+        throw new Error("Failed to fetch question detail from API");
+    }
+    const questionData = await questionDetailResponse.json();
+
+    // Map the API response structure to the local 'Question' type
+    const choices: Record<string, string> = {};
+    const optionLetters = ['A', 'B', 'C', 'D']; // Standard answer options
+    questionData.answerOptions.forEach((option: any, index: number) => {
+      // For English, remove HTML from choices. For Math, preserve for KaTeX rendering.
+      choices[optionLetters[index]] = subject === "English" ? option.content.replace(/<[^>]*>/g, '') : option.content;
+    });
+
+    // Get full names for domain and difficulty for display
+    const domainFullName = domainFullNameMapping[randomQuestionInfo.domain] || randomQuestionInfo.domain;
+    const difficultyFullName = difficultyFullNameMapping[randomQuestionInfo.difficulty] || randomQuestionInfo.difficulty;
+
+    return {
+      id: questionData.external_id,
+      domain: domainFullName,
+      visuals: { type: 'none', svg_content: '' }, // API does not provide SVG content in this structure
+      question: {
+        // For English, remove HTML from question stem. For Math, preserve for KaTeX rendering.
+        question: subject === "English" ? questionData.stem.replace(/<[^>]*>/g, '') : questionData.stem,
+        paragraph: questionData.stimulus, // Keep stimulus as HTML
+        explanation: questionData.rationale || questionData.explanation || "Explanation not provided by this API.", // Explanation can contain HTML
+        correct_answer: questionData.correct_answer[0],
+        choices: choices,
+      },
+      difficulty: difficultyFullName,
+    };
+  }, [subject]); // Added 'subject' to dependencies as logic depends on it.
+
+  /**
+   * Fetches an English question from the local fallback JSON data.
+   * Used when CollegeBoard API is not available or returns no results.
+   */
+  const fetchEnglishFromJson = useCallback(() => {
+    if (data) {
+      let currentSubjectQuestions: Question[] = data.english;
+      let newFilteredQuestions = currentSubjectQuestions;
+
+      // Apply difficulty filter
+      if (difficulty !== "All") {
+        newFilteredQuestions = newFilteredQuestions.filter((q) => q.difficulty === difficulty);
+      }
+      // Apply domain filter
+      if (selectedDomain !== "All") {
+        newFilteredQuestions = newFilteredQuestions.filter((q) => q.domain === selectedDomain);
+      }
+
+      setFilteredQuestions(newFilteredQuestions);
+      if (newFilteredQuestions.length > 0) {
+        const randomIndex = Math.floor(Math.random() * newFilteredQuestions.length);
+        setCurrentQuestion(newFilteredQuestions[randomIndex]);
+      } else {
+        setCurrentQuestion(null);
+      }
+    }
+  }, [data, difficulty, selectedDomain]);
+
+
+  // Effect to fetch initial static JSON data (for Math and English fallback)
+  useEffect(() => {
+    const fetchInitialData = async () => {
+      try {
+        const response = await fetch(DATA_URL);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        const jsonData: Data = await response.json();
+        setData(jsonData);
+        // Extract unique domains for math and english for filter options
+        const uniqueMathDomains = Array.from(new Set(jsonData.math.map((q) => q.domain)));
+        setMathDomains(uniqueMathDomains);
+        const uniqueEnglishDomains = Array.from(new Set(jsonData.english.map((q) => q.domain)));
+        setEnglishDomains(uniqueEnglishDomains);
+      } catch (error) {
+        console.error("Error fetching initial JSON data:", error);
+      }
+    };
+    fetchInitialData();
+  }, []);
+
+  // Main Effect to load questions based on selected filters, subject, and fetch trigger
+  useEffect(() => {
+    const loadQuestion = async () => {
+      // If currently viewing a question from history, do not load a new one
+      if (currentHistoryIndex !== null) {
+        setIsLoading(false); // Ensure loading state is false if stuck on history view
+        return;
+      }
+      
+      setIsLoading(true);
+      setCurrentQuestion(null); // Clear previous question to show loading state clearly
+
+      if (subject === 'English') {
+        try {
+          // Attempt to fetch from CollegeBoard API first
+          const question = await fetchEnglishQuestionFromApi(selectedDomain, difficulty);
+          if (question) {
+            setCurrentQuestion(question);
+            setFilteredQuestions([question]); // Set filtered questions for consistency
+          } else {
+            // If API returns no questions or issues, fallback to local JSON data
+            fetchEnglishFromJson();
+          }
+        } catch (error) {
+          console.error("English API failed, using fallback:", error);
+          fetchEnglishFromJson(); // Fallback to JSON data on API error
+        }
+      } else { // Math subject (always uses local JSON data)
+        if (data) {
+          let newFilteredQuestions = data.math;
+          // Apply filters
+          if (difficulty !== "All") {
+            newFilteredQuestions = newFilteredQuestions.filter((q) => q.difficulty === difficulty);
+          }
+          if (selectedDomain !== "All") {
+            newFilteredQuestions = newFilteredQuestions.filter((q) => q.domain === selectedDomain);
+          }
+
+          setFilteredQuestions(newFilteredQuestions);
+          if (newFilteredQuestions.length > 0) {
+            const randomIndex = Math.floor(Math.random() * newFilteredQuestions.length);
+            setCurrentQuestion(newFilteredQuestions[randomIndex]);
+          } else {
+            setCurrentQuestion(null); // No math questions found for filters
+          }
+        }
+      }
+
+      resetQuestionStates(); // Reset answer selection and submission state for the new question
+      setIsLoading(false);
+    };
+
+    // Only load questions if initial data is ready (for math or English fallback)
+    // or if it's English and data is not yet loaded (allows API call without waiting for JSON)
+    if ((subject === 'Math' && data) || (subject === 'English')) {
+       loadQuestion();
+    }
+
+
+  }, [data, subject, difficulty, selectedDomain, currentHistoryIndex, fetchEnglishQuestionFromApi, fetchEnglishFromJson, fetchQuestionTrigger]); // `fetchQuestionTrigger` added here to force re-runs
+
+  // Effect to reset selected domain when subject changes
+  useEffect(() => {
+    setSelectedDomain("All");
+  }, [subject]);
+
+  // Effect to update predicted scores based on accuracy
+  useEffect(() => {
+    const newMathScore = Math.round((mathPercentage * 600) + 200);
+    setPredictedMathScore(newMathScore);
+    const newEnglishScore = Math.round((englishPercentage * 600) + 200);
+    setPredictedEnglishScore(newEnglishScore);
+  }, [mathPercentage, englishPercentage]);
+
+  /**
+   * Handles user selecting an answer choice.
+   * Prevents selection if already submitted or viewing history.
+   * @param choice - The selected answer choice key (e.g., "A", "B").
+   */
+  const handleAnswerSelect = (choice: string) => {
+    // Prevent selecting if an answer is already submitted or if viewing a past answered question
+    if (isSubmitted || (currentHistoryIndex !== null && questionHistory[currentHistoryIndex].isAnswered)) return;
+    setSelectedAnswer(choice);
+  };
+
+  /**
+   * Handles user submitting their answer.
+   * Checks correctness, updates statistics, and adds to history.
+   */
+  const handleSubmit = () => {
+    if (!selectedAnswer || !currentQuestion) return;
+
+    const correct = selectedAnswer === currentQuestion.question.correct_answer;
+    setIsCorrect(correct);
+    setIsSubmitted(true);
+    setShowExplanation(!correct); // Show explanation if incorrect
+
+    // Update global and subject-specific correct/wrong counts
+    if (correct) {
+      setCorrectCount((prev) => prev + 1);
+      subject === "Math" ? setMathCorrect((prev) => prev + 1) : setEnglishCorrect((prev) => prev + 1);
+      setCurrentStreak((prev) => {
+        const newStreak = prev + 1;
+        setMaxStreak((maxPrev) => Math.max(maxPrev, newStreak)); // Update max streak
+        return newStreak;
+      });
+    } else {
+      setWrongCount((prev) => prev + 1);
+      subject === "Math" ? setMathWrong((prev) => prev + 1) : setEnglishRight((prev) => prev + 1);
+      setCurrentStreak(0); // Reset streak if incorrect
+    }
+
+    // Update question history
     const existingIndex = questionHistory.findIndex(item => item.question.id === currentQuestion.id);
-
     if (existingIndex !== -1) {
-      // Question is already in history, just toggle the mark
-      setQuestionHistory(prev => prev.map((item, index) => 
-        index === existingIndex 
-          ? { ...item, isMarkedForLater: !item.isMarkedForLater }
+      // If question already in history, update its details
+      setQuestionHistory(prev => prev.map((item, index) =>
+        index === existingIndex
+          ? { ...item, userAnswer: selectedAnswer, isCorrect: correct, isAnswered: true }
           : item
       ));
     } else {
-      // Question not in history, add it as marked
+      // Add new question to history
       const newHistoryItem: QuestionHistory = {
-        id: questionHistory.length + 1,
+        id: questionHistory.length + 1, // Simple ID for display in history box
         question: currentQuestion,
-        userAnswer: null,
-        isCorrect: null,
-        isMarkedForLater: true,
-        isAnswered: false,
+        userAnswer: selectedAnswer,
+        isCorrect: correct,
+        isMarkedForLater: false, // Not marked for later by default on submission
+        isAnswered: true,
       };
       setQuestionHistory(prev => [...prev, newHistoryItem]);
-      // If submitting an answer to a question that was only marked, we should treat it as a new submission.
-      // The handleSubmit function already handles this logic.
     }
   };
 
+  /**
+   * Proceeds to the next question by resetting states and triggering a new question fetch.
+   */
+  const showNext = () => {
+    setCurrentHistoryIndex(null); // Exit history view
+    resetQuestionStates(); // Reset current question UI states
+    setFetchQuestionTrigger(prev => prev + 1); // Increment trigger to load a new question
+  };
+  
+  /**
+   * Toggles the "Mark for Later" status of the current question.
+   * Adds to history if not already present.
+   */
+  const handleMarkForLater = () => {
+    if (!currentQuestion) return;
+    const existingIndex = questionHistory.findIndex(item => item.question.id === currentQuestion.id);
+    if (existingIndex !== -1) {
+      // Toggle marked status if already in history
+      setQuestionHistory(prev => prev.map((item, index) => 
+        index === existingIndex ? { ...item, isMarkedForLater: !item.isMarkedForLater } : item
+      ));
+    } else {
+      // Add to history as marked for later if not already present
+      const newHistoryItem: QuestionHistory = {
+        id: questionHistory.length + 1,
+        question: currentQuestion,
+        userAnswer: null, isCorrect: null, isMarkedForLater: true, isAnswered: false,
+      };
+      setQuestionHistory(prev => [...prev, newHistoryItem]);
+    }
+  };
+  
+  /**
+   * Navigates to a specific question in the history.
+   * Updates current question and UI states to reflect the historical question.
+   * @param index - The index of the question in the history array.
+   */
   const handleProgressBoxClick = (index: number) => {
     const historyItem = questionHistory[index];
-    setCurrentHistoryIndex(index);
+    setCurrentHistoryIndex(index); // Set history index to view this specific question
     setCurrentQuestion(historyItem.question);
     setSelectedAnswer(historyItem.userAnswer);
     setIsCorrect(historyItem.isCorrect);
     setIsSubmitted(historyItem.isAnswered);
-    // Only show explanation if it was answered and incorrect
-    setShowExplanation(historyItem.isAnswered && historyItem.isCorrect === false);
+    setShowExplanation(historyItem.isAnswered && !historyItem.isCorrect);
   };
-
+  
+  /**
+   * Finds the current question's status (answered, marked, etc.) from history.
+   * @returns The QuestionHistory item for the current question or null.
+   */
   const getCurrentQuestionStatus = () => {
     if (!currentQuestion) return null;
     return questionHistory.find(item => item.question.id === currentQuestion.id) || null;
   };
   
-  const getDifficultyEmoji = (diff: string) => {
-    switch (diff) {
-      case "All": return "❓";
-      case "Easy": return "😊";
-      case "Medium": return "😐";
-      case "Hard": return "😠";
-      default: return "❓";
-    }
-  };
-
-  const getDifficultyColor = (diff: string) => {
-    switch (diff) {
-      case "Easy": return "#4caf50";
-      case "Medium": return "#F7DA1D";
-      case "Hard": return "#f44336";
-      default: return "white";
-    }
-  };
-
-  const getDifficultyTooltip = (diff: string) => {
-    switch (diff) {
-      case "All": return "Any Difficulty";
-      case "Easy": return "Easy";
-      case "Medium": return "Medium";
-      case "Hard": return "Hard";
-      default: return "";
-    }
-  };
-
-  const mathDomainNames = ["Algebra", "Advanced Math", "Problem-Solving and Data Analysis", "Geometry and Trigonometry"];
-  const englishDomainNames = ["Information and Ideas", "Craft and Structure", "Expression of Ideas", "Standard English Conventions"];
-  
-  const currentDomainNames = subject === "Math" ? mathDomainNames : englishDomainNames;
-  const currentQuestionStatus = getCurrentQuestionStatus();
-  const isViewingAnsweredHistory = currentHistoryIndex !== null && questionHistory[currentHistoryIndex]?.isAnswered;
-
-
-  // Desmos Calculator Drag and Resize Logic
+  // Desmos Calculator Logic (Drag, Resize)
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>, type: 'drag' | 'resize') => {
     if (desmosRef.current) {
       const rect = desmosRef.current.getBoundingClientRect();
       if (type === 'drag') {
         isDragging.current = true;
         dragOffset.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-      } else { // resize
+      } else {
         isResizing.current = true;
         resizeStart.current = { x: e.clientX, y: e.clientY };
         initialSize.current = { width: rect.width, height: rect.height };
       }
-      e.preventDefault();
-      document.body.style.userSelect = 'none'; // Prevent text selection during drag/resize
+      e.preventDefault(); // Prevent text selection
+      document.body.style.userSelect = 'none'; // Disable text selection globally during drag/resize
     }
   }, []);
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
     if (isDragging.current && desmosRef.current) {
-      const newX = e.clientX - dragOffset.current.x;
-      const newY = e.clientY - dragOffset.current.y;
-      setDesmosPosition({ x: newX, y: newY });
+      setDesmosPosition({ x: e.clientX - dragOffset.current.x, y: e.clientY - dragOffset.current.y });
     } else if (isResizing.current && desmosRef.current) {
-      const deltaX = e.clientX - resizeStart.current.x;
-      const deltaY = e.clientY - resizeStart.current.y;
-      
-      const newWidth = Math.max(300, initialSize.current.width + deltaX); // Min width 300px
-      const newHeight = Math.max(200, initialSize.current.height + deltaY); // Min height 200px
+      // Calculate new width and height, ensuring minimum dimensions
+      const newWidth = Math.max(300, initialSize.current.width + (e.clientX - resizeStart.current.x));
+      const newHeight = Math.max(200, initialSize.current.height + (e.clientY - resizeStart.current.y));
       setDesmosSize({ width: newWidth, height: newHeight });
     }
   }, []);
@@ -398,56 +531,101 @@ export default function HomePage() {
   const handleMouseUp = useCallback(() => {
     isDragging.current = false;
     isResizing.current = false;
-    document.body.style.userSelect = ''; // Restore text selection
+    document.body.style.userSelect = ''; // Re-enable text selection
   }, []);
 
+  // Event listeners for mouse move and up for drag/resize functionality
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
-      return () => {
-        window.removeEventListener('mousemove', handleMouseMove);
-        window.removeEventListener('mouseup', handleMouseUp);
-      };
-    }
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
   }, [handleMouseMove, handleMouseUp]);
+  
+  // UI Helper Functions and Variables
+  const getDifficultyEmoji = (diff: string) => ({ "All": "❓", "Easy": "😊", "Medium": "😐", "Hard": "😠" }[diff] || "❓");
+  const getDifficultyColor = (diff: string) => ({ "Easy": "#4caf50", "Medium": "#F7DA1D", "Hard": "#f44336" }[diff] || "white");
+  const getDifficultyTooltip = (diff: string) => ({ "All": "Any Difficulty", "Easy": "Easy", "Medium": "Medium", "Hard": "Hard" }[diff] || "");
+  // Domain names for display in the filter sidebar
+  const mathDomainNames = ["Algebra", "Advanced Math", "Problem-Solving and Data Analysis", "Geometry and Trigonometry"];
+  const englishDomainNames = ["Information and Ideas", "Craft and Structure", "Expression of Ideas", "Standard English Conventions"];
+  const currentDomainNames = subject === "Math" ? mathDomainNames : englishDomainNames;
+  const currentQuestionStatus = getCurrentQuestionStatus();
+  // Flag to determine if the user is currently viewing a previously answered question from history
+  const isViewingAnsweredHistory = currentHistoryIndex !== null && questionHistory[currentHistoryIndex]?.isAnswered;
 
-  // Set initial position of Desmos calculator in the middle of the screen
+
+  // Effect to load KaTeX's auto-render functionality for math expressions
   useEffect(() => {
-    if (typeof window !== 'undefined' && desmosRef.current && showDesmos) {
-      const rect = desmosRef.current.getBoundingClientRect();
-      setDesmosPosition({
-        x: (window.innerWidth / 2) - (rect.width / 2),
-        y: (window.innerHeight / 2) - (rect.height / 2)
-      });
+    const loadKatexAutoRender = () => {
+      // Check if KaTeX and auto-render are already loaded
+      if (typeof window.katex !== 'undefined' && typeof window.renderMathInElement !== 'undefined') {
+        if (questionContentRef.current && subject === "Math") {
+          // Apply KaTeX rendering to the relevant container
+          window.renderMathInElement(questionContentRef.current, {
+            delimiters: [
+              {left: '$$', right: '$$', display: true}, // Block math
+              {left: '$', right: '$', display: false},  // Inline math
+            ],
+            throwOnError : false // Don't throw errors for invalid LaTeX
+          });
+        }
+        return;
+      }
+
+      // If not loaded, dynamically add the auto-render script
+      const autoRenderScript = document.createElement('script');
+      autoRenderScript.src = 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js';
+      autoRenderScript.integrity = 'sha384-4y2VsVgFrrM+txU+bIBNAYtdCUMfRk2iX/tiergMxI7BPzUoJjxWfWtSRAWTlP7wu';
+      autoRenderScript.crossOrigin = 'anonymous';
+      document.body.appendChild(autoRenderScript);
+
+      autoRenderScript.onload = () => {
+        if (questionContentRef.current && subject === "Math") {
+          // Once auto-render is loaded, apply it to the content
+          window.renderMathInElement(questionContentRef.current, {
+            delimiters: [
+              {left: '$$', right: '$$', display: true},
+              {left: '$', right: '$', display: false},
+            ],
+            throwOnError : false
+          });
+        }
+      };
+    };
+
+    // We rely on the initial load of KaTeX CSS. This useEffect handles the JS part.
+    // It will trigger whenever currentQuestion or subject changes.
+    // Ensure KaTeX main script is loaded before auto-render script
+    const katexMainScript = document.querySelector('script[src*="katex.min.js"]');
+    if (!katexMainScript) {
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js';
+        script.integrity = 'sha384-oX8sMTK1eTwFDh4PgHFgQFkOqB5ESkKhOgBbyhrYG6rQyNYJ0aJ/EqvFUgVD8HHZ';
+        script.crossOrigin = 'anonymous';
+        document.body.appendChild(script);
+        script.onload = loadKatexAutoRender; // Load auto-render after main KaTeX
+    } else {
+        loadKatexAutoRender(); // If main KaTeX is already there, just load auto-render
     }
-  }, [showDesmos]);
+
+    // Cleanup function (optional, but good for complex dynamic scripts)
+    return () => {
+        // You might want to remove scripts if they interfere, but generally for KaTeX it's fine to leave.
+    };
+  }, [currentQuestion, subject]); // Re-run when current question or subject changes
 
 
+  // Main JSX rendering for the SAT Prep Application
   return (
-    <div
-      style={{
-        fontFamily: "Arial, sans-serif",
-        backgroundColor: "#f8f9fa",
-        minHeight: "100vh",
-        margin: 0,
-        padding: 0,
-      }}
-    >
-      {/* Header */}
-      <div
-        style={{
-          backgroundColor: "white",
-          color: "#4285f4",
-          padding: "15px 20px",
-          borderBottom: "1px solid #ddd",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-        }}
-      >
+    <div style={{ fontFamily: "Arial, sans-serif", backgroundColor: "#f8f9fa", minHeight: "100vh", margin: 0, padding: 0 }}>
+      {/* Header Section */}
+      <div style={{ backgroundColor: "white", color: "#4285f4", padding: "15px 20px", borderBottom: "1px solid #ddd", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <span style={{ fontSize: "24px", fontWeight: "bolder" }}>DailySAT</span>
-        <div style={{display: 'flex', flexDirection: 'column', alignItems: 'flex-end'}}>
+         {/* Predicted Score Display */}
+         <div style={{display: 'flex', flexDirection: 'column', alignItems: 'flex-end'}}>
             <span style={{fontSize: '12px', color: '#666', marginBottom: '4px'}}>Predicted Score</span>
             <div style={{display: 'flex', gap: '20px', alignItems: 'center'}}>
                 <div style={{fontSize: '16px', color: '#333'}}>
@@ -469,16 +647,8 @@ export default function HomePage() {
       </div>
 
       <div style={{ display: "flex", padding: "20px", gap: "20px" }}>
-        {/* Left Sidebar */}
-        <div
-          style={{
-            width: "250px",
-            backgroundColor: "#f8f9fa",
-            padding: "20px",
-            borderRadius: "8px",
-            height: "fit-content",
-          }}
-        >
+        {/* Left Sidebar - Filters and Controls */}
+        <div style={{ width: "250px", backgroundColor: "#f8f9fa", padding: "20px", borderRadius: "8px", height: "fit-content" }}>
           {/* Subject Selector */}
           <div style={{ marginBottom: "0px", position: "relative" }}>
             <div style={{ fontSize: "18px", fontWeight: "bold", marginBottom: "10px", color: "#333", position: "relative" }}> 
@@ -513,7 +683,7 @@ export default function HomePage() {
             marginBottom: "20px"
           }}></div>
 
-          {/* Topics */}
+          {/* Topics Filter */}
           <div style={{ marginBottom: "30px" }}>
             <div style={{ fontSize: "14px", color: "#666", marginBottom: "10px" }}>Topics:</div>
             <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
@@ -556,7 +726,7 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* Difficulty */}
+          {/* Difficulty Filter */}
           <div>
             <div style={{ fontSize: "14px", color: "#666", marginBottom: "10px" }}>Choose Difficulty:</div>
             <div style={{ display: "flex", gap: "8px" }}>
@@ -587,46 +757,33 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* Main Content */}
+
+        {/* Main Content Area */}
         <div style={{ flex: 1, display: "flex", gap: "20px" }}>
-          {/* Question Area */}
-          <div
-            style={{
-              flex: 2,
-              backgroundColor: "white",
-              padding: "20px",
-              borderRadius: "8px",
-              boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
-              color: "black"
-            }}
-          >
-            {currentQuestion ? (
+          {/* Question Display Area */}
+          <div ref={questionContentRef} style={{ flex: 2, backgroundColor: "white", padding: "20px", borderRadius: "8px", boxShadow: "0 2px 4px rgba(0,0,0,0.1)", color: "black" }}>
+            {isLoading && <p>Loading question...</p>}
+            {!isLoading && !currentQuestion && <p>No questions found for the selected filters. Please try a different selection.</p>}
+            {!isLoading && currentQuestion ? (
               <>
-                {/* Question Header with Mark for Later button */}
-                <div
-                  style={{
-                    backgroundColor: "#e8f4f8",
-                    padding: "10px 15px",
-                    borderRadius: "6px",
-                    marginBottom: "20px",
-                    fontSize: "14px",
-                    color: "black",
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
-                  }}
-                >
+                {/* Question Header (Topic, Difficulty, Calculator, Mark for Later) */}
+                <div style={{ backgroundColor: "#e8f4f8", padding: "10px 15px", borderRadius: "6px", marginBottom: "20px", fontSize: "14px", color: "black", display: "flex", justifyContent: "space-between", alignItems: "center", boxShadow: "0 2px 4px rgba(0,0,0,0.1)" }}>
                   <div>
-                    <span style={{ fontWeight: "bold" }}>Topic:</span> {currentQuestion.domain} |{" "}
+                    {/* Conditional display for English topic based on "All Topics" selection */}
+                    {!(subject === "English" && selectedDomain === "All") && currentQuestion ? (
+                        <span style={{ fontWeight: "bold" }}>
+                            Topic: {currentQuestion.domain} |{" "}
+                        </span>
+                    ) : null}
                     <span style={{ fontWeight: "bold" }}>Difficulty:</span> {currentQuestion.difficulty}
                   </div>
-                  <div style={{ display: "flex", gap: "10px" }}> {/* Container for buttons */}
+                  <div style={{ display: "flex", gap: "10px" }}>
+                    {/* Desmos Calculator Button */}
                     <button
                       onClick={() => setShowDesmos(!showDesmos)}
                       style={{
                         padding: "6px 12px",
-                        backgroundColor: showDesmos ? "#e3f2fd" : "#fff", // Slightly different background when active
+                        backgroundColor: showDesmos ? "#e3f2fd" : "#fff",
                         border: `1px solid ${showDesmos ? "#2196f3" : "#ddd"}`,
                         borderRadius: "4px",
                         cursor: "pointer",
@@ -642,6 +799,7 @@ export default function HomePage() {
                     >
                       <i className="fas fa-calculator"></i>
                     </button>
+                    {/* Mark for Later Button */}
                     <button
                       onClick={handleMarkForLater}
                       style={{
@@ -665,11 +823,29 @@ export default function HomePage() {
                   </div>
                 </div>
 
-                {/* Question */}
-                <div style={{ marginBottom: "20px", fontSize: "16px", lineHeight: "1.5", color: "#000000", fontWeight: "bold"}}>
-                  <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-                    {currentQuestion.question.question}
-                  </ReactMarkdown>
+                 {/* Paragraph/Stimulus for English questions */}
+                 {subject === "English" && currentQuestion.question.paragraph && ( // Only render for English and if paragraph exists
+                    <div
+                        style={{
+                            marginBottom: '20px',
+                            padding: '15px',
+                            backgroundColor: '#f1f1f1',
+                            borderRadius: '6px',
+                            border: '1px solid #e0e0e0',
+                            fontSize: '15px',
+                            lineHeight: '1.6',
+                            maxHeight: '200px',
+                            overflowY: 'auto'
+                        }}
+                        // Dangerously set inner HTML as paragraph content can contain HTML tags
+                        dangerouslySetInnerHTML={{ __html: currentQuestion.question.paragraph }}
+                    />
+                )}
+
+                {/* Question Text */}
+                <div style={{ marginBottom: "20px", fontSize: "16px", lineHeight: "1.5", color: "#000000", fontWeight: "bold" }}>
+                  {/* Render question using dangerouslySetInnerHTML, KaTeX will process math if present */}
+                  <div dangerouslySetInnerHTML={{ __html: currentQuestion.question.question }} />
                 </div>
 
                 {/* Answer Choices */}
@@ -677,76 +853,41 @@ export default function HomePage() {
                   {Object.entries(currentQuestion.question.choices).map(([key, value]) => {
                     const isSelected = selectedAnswer === key;
                     const isCorrectChoice = key === currentQuestion.question.correct_answer;
-
                     let borderColor = "#ddd";
                     let backgroundColor = "white";
 
+                    // Styling based on submission status and correctness
                     if (isSubmitted) {
-                        if(isCorrectChoice){
-                            borderColor = "#4caf50";
-                            backgroundColor = "#e8f5e9";
-                        } else if (isSelected && !isCorrect) {
-                            borderColor = "#f44336";
-                            backgroundColor = "#ffebee";
-                        }
+                        if(isCorrectChoice){ borderColor = "#4caf50"; backgroundColor = "#e8f5e9"; } // Correct answer
+                        else if (isSelected && !isCorrect) { borderColor = "#f44336"; backgroundColor = "#ffebee"; } // Incorrect user answer
                     } else if (isSelected) {
-                        borderColor = "#2196f3";
-                        backgroundColor = "#e3f2fd";
+                        borderColor = "#2196f3"; backgroundColor = "#e3f2fd"; // Selected but not submitted
                     }
 
                     return (
-                      <button
-                        key={key}
-                        onClick={() => handleAnswerSelect(key)}
-                        disabled={isViewingAnsweredHistory}
-                        style={{
-                          display: "block",
-                          width: "100%",
-                          padding: "15px",
-                          marginBottom: "10px",
-                          border: `2px solid ${borderColor}`,
-                          borderRadius: "6px",
-                          backgroundColor: backgroundColor,
-                          cursor: isViewingAnsweredHistory ? "not-allowed" : "pointer",
-                          textAlign: "left",
-                          fontSize: "16px",
-                          color: "black",
-                          transition: "all 0.2s",
-                          boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+                      <button key={key} onClick={() => handleAnswerSelect(key)} disabled={isViewingAnsweredHistory} style={{
+                          display: "block", width: "100%", padding: "15px", marginBottom: "10px", border: `2px solid ${borderColor}`,
+                          borderRadius: "6px", backgroundColor: backgroundColor, cursor: isViewingAnsweredHistory ? "not-allowed" : "pointer",
+                          textAlign: "left", fontSize: "16px", color: "black", transition: "all 0.2s", boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
                           opacity: isViewingAnsweredHistory ? 0.7 : 1
-                        }}
-                      >
+                      }}>
                         {subject === "Math" ? (
                           <>
                             <span style={{ fontWeight: "bold", marginRight: "8px" }}>{key}.</span>
-                            <ReactMarkdown
-                              remarkPlugins={[remarkMath]}
-                              rehypePlugins={[rehypeKatex]}
-                              components={{
-                                p: ({ node, ...props }) => <span style={{display: 'inline'}} {...props} />,
-                              }}
-                            >
-                              {`$${value}$`}
-                            </ReactMarkdown>
+                            {/* Render math choices with dangerouslySetInnerHTML, KaTeX will process math if present */}
+                            <span dangerouslySetInnerHTML={{ __html: value }} /> 
                           </>
                         ) : (
-                          <ReactMarkdown
-                            remarkPlugins={[remarkMath]}
-                            rehypePlugins={[rehypeKatex]}
-                            components={{
-                              p: ({ node, ...props }) => <span {...props} />,
-                            }}
-                          >
-                            {`${key}. ${value}`}
-                          </ReactMarkdown>
+                          // English choices are plain text (after stripping HTML), direct span
+                          <span>{`${key}. ${value}`}</span>
                         )}
                       </button>
                     );
                   })}
                 </div>
 
-                {/* Submit / Next Buttons */}
-                 <div style={{ display: "flex", gap: "10px" }}>
+                {/* Action Buttons (Submit/Next) & Explanation Display */}
+                <div style={{ display: "flex", gap: "10px" }}>
                     {isSubmitted ? (
                       <button
                         onClick={showNext}
@@ -765,10 +906,10 @@ export default function HomePage() {
                         Next <i className="fas fa-arrow-right"></i>
                       </button>
                     ) : (
-                       !isViewingAnsweredHistory && (
+                       !isViewingAnsweredHistory && ( // Only show submit if not viewing answered history
                         <button
                             onClick={handleSubmit}
-                            disabled={!selectedAnswer}
+                            disabled={!selectedAnswer} // Disable if no answer is selected
                             style={{
                             padding: "12px 24px",
                             backgroundColor: "#4285f4",
@@ -786,45 +927,23 @@ export default function HomePage() {
                         </button>
                        )
                     )}
-                 </div>
-
-
-                {/* Explanation */}
+                </div>
+                {/* Explanation section, shown if answer is incorrect or explicitly flagged to show */}
                 {showExplanation && (
-                  <div
-                    style={{
-                      marginTop: "20px",
-                      padding: "15px",
-                      backgroundColor: "#f8f9fa",
-                      border: "1px solid #ddd",
-                      borderRadius: "6px",
-                      color: "#000000"
-                    }}
-                  >
+                  <div style={{ marginTop: "20px", padding: "15px", backgroundColor: "#f8f9fa", border: "1px solid #ddd", borderRadius: "6px", color: "#000000" }}>
                     <div style={{ fontWeight: "bold", marginBottom: "10px", color: "black" }}>Explanation:</div>
-                    <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-                      {currentQuestion.question.explanation}
-                    </ReactMarkdown>
+                    {/* Render explanation HTML directly using dangerouslySetInnerHTML */}
+                    <div dangerouslySetInnerHTML={{ __html: currentQuestion.question.explanation }} />
                   </div>
                 )}
               </>
-            ) : (
-              <p>Fetching questions...</p>
-            )}
+            ) : null}
           </div>
 
-          {/* Right Sidebar - Stats */}
-          <div
-            style={{
-              width: "250px",
-              display: "flex",
-              flexDirection: "column",
-              gap: "20px",
-              position: "relative" // Needed for absolute positioning of accuracy dropdown
-            }}
-          >
-            {/* Streak */}
-            <div
+          {/* Right Sidebar - Stats and Progress */}
+          <div style={{ width: "250px", display: "flex", flexDirection: "column", gap: "20px", position: "relative" }}>
+             {/* Streak Box */}
+             <div
               style={{
                 backgroundColor: "#eff6ff",
                 borderRadius: "8px",
@@ -841,14 +960,14 @@ export default function HomePage() {
               </div>
             </div>
 
-            {/* Accuracy */}
+            {/* Accuracy Box (Collapsible) */}
             <div
               style={{
                 backgroundColor: "#eff6ff",
                 borderRadius: "8px",
                 boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
                 position: "relative",
-                zIndex: isAccuracyExpanded ? 10 : 1 // Ensure it overlaps
+                zIndex: isAccuracyExpanded ? 10 : 1 // Ensure it overlaps other elements when expanded
               }}
             >
               <div style={{ 
@@ -864,7 +983,7 @@ export default function HomePage() {
                 justifyContent: "space-between",
                 cursor: 'pointer'
               }}
-              onClick={() => setIsAccuracyExpanded(!isAccuracyExpanded)}
+              onClick={() => setIsAccuracyExpanded(!isAccuracyExpanded)} // Toggle expanded state on click
               >
                 <span>
                   <i className="fas fa-bullseye" style={{ marginRight: "8px" }}></i>
@@ -873,7 +992,7 @@ export default function HomePage() {
                 <i 
                     className={`fas fa-chevron-${isAccuracyExpanded ? 'up' : 'down'}`}
                     style={{
-                      transition: 'transform 0.3s ease'
+                      transition: 'transform 0.3s ease' // Smooth animation for chevron icon
                     }}
                   ></i>
               </div>
@@ -886,7 +1005,7 @@ export default function HomePage() {
                 </div>
                 <div style={{
                   height: "17px",
-                  backgroundColor: totalAttempts === 0 ? "#e0e0e0" : "#f66055",
+                  backgroundColor: totalAttempts === 0 ? "#e0e0e0" : "#f66055", // Grey if no attempts, else red
                   borderRadius: "10px",
                   overflow: "hidden",
                   boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
@@ -902,23 +1021,23 @@ export default function HomePage() {
                 </div>
               </div>
 
-              {/* Expanded Subject-Specific Stats */}
+              {/* Expanded Subject-Specific Stats (Conditionally visible) */}
               <div
                 style={{
                   position: "absolute",
-                  top: "100%", // Position below the main accuracy box
+                  top: "100%", // Position directly below the main accuracy box
                   left: 0,
                   right: 0,
                   backgroundColor: "#eff6ff",
                   borderBottomLeftRadius: "8px",
                   borderBottomRightRadius: "8px",
                   boxShadow: "0 4px 8px rgba(0,0,0,0.15)",
-                  maxHeight: isAccuracyExpanded ? "300px" : "0",
+                  maxHeight: isAccuracyExpanded ? "300px" : "0", // Control visibility with maxHeight for smooth transition
                   overflow: "hidden",
                   transition: "max-height 0.4s ease-in-out, padding 0.4s ease-in-out",
-                  padding: isAccuracyExpanded ? "15px" : "0 15px",
+                  padding: isAccuracyExpanded ? "15px" : "0 15px", // Adjust padding for smooth transition
                   color: 'black',
-                  borderTop: isAccuracyExpanded ? '1px solid #b0cfff' : 'none'
+                  borderTop: isAccuracyExpanded ? '1px solid #b0cfff' : 'none' // Border when expanded
                 }}
               >
                  {/* Math Stats */}
@@ -947,7 +1066,7 @@ export default function HomePage() {
               </div>
             </div>
 
-            {/* Progress Box */}
+            {/* Progress Box (Question History Overview) */}
             <div
               style={{
                 backgroundColor: "#eff6ff",
@@ -966,7 +1085,7 @@ export default function HomePage() {
                     flexWrap: 'wrap',
                     gap: '10px',
                     color: 'white',
-                    maxHeight: '125px',
+                    maxHeight: '125px', // Limit height for scrollability
                     overflowY: 'auto'
                 }}>
                     {questionHistory.length === 0 && <span style={{color: 'grey', fontSize: '14px'}}>Answer questions to see your progress.</span>}
@@ -992,7 +1111,7 @@ export default function HomePage() {
                                     height: '35px',
                                     borderRadius: '6px',
                                     backgroundColor: bgColor,
-                                    border: currentHistoryIndex === index ? '3px solid #0d47a1' : 'none',
+                                    border: currentHistoryIndex === index ? '3px solid #0d47a1' : 'none', // Highlight if currently viewing
                                     cursor: 'pointer',
                                     display: 'flex',
                                     alignItems: 'center',
@@ -1010,16 +1129,13 @@ export default function HomePage() {
                     })}
                 </div>
             </div>
-
           </div>
         </div>
       </div>
       
-      {/* Desmos Calculator Embed */}
+      {/* Desmos Calculator Embed (Fixed position, draggable, resizable) */}
       {showDesmos && (
-        <div
-          ref={desmosRef}
-          style={{
+        <div ref={desmosRef} style={{
             position: 'fixed',
             top: desmosPosition.y,
             left: desmosPosition.x,
@@ -1029,61 +1145,61 @@ export default function HomePage() {
             border: '1px solid #ccc',
             borderRadius: '8px',
             boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
-            zIndex: 1000,
+            zIndex: 1000, // Ensure it's on top of other content
             display: 'flex',
             flexDirection: 'column',
-            overflow: 'hidden',
-          }}
-        >
-          <div
-            style={{
-              cursor: 'grab',
-              backgroundColor: '#f1f1f1',
-              padding: '8px 12px',
-              borderBottom: '1px solid #ccc',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              fontWeight: 'bold',
-              fontSize: '14px',
-              color: '#333'
-            }}
-            onMouseDown={(e) => handleMouseDown(e, 'drag')}
-          >
-            Desmos Calculator
-            <button
-              onClick={() => setShowDesmos(false)}
-              style={{
-                background: 'none',
-                border: 'none',
-                fontSize: '18px',
-                cursor: 'pointer',
-                color: '#666'
-              }}
+            overflow: 'hidden', // Hide overflow from resize handle
+          }}>
+            <div
+                style={{
+                cursor: 'grab', // Indicate draggable area
+                backgroundColor: '#f1f1f1',
+                padding: '8px 12px',
+                borderBottom: '1px solid #ccc',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                fontWeight: 'bold',
+                fontSize: '14px',
+                color: '#333'
+                }}
+                onMouseDown={(e) => handleMouseDown(e, 'drag')}
             >
-              &times;
-            </button>
-          </div>
-          <iframe
-            src="https://www.desmos.com/calculator"
-            width="100%"
-            height="100%"
-            style={{ border: 'none' }}
-            title="Desmos Calculator"
-          />
-          <div
-            style={{
-              position: 'absolute',
-              bottom: 0,
-              right: 0,
-              width: '15px',
-              height: '15px',
-              cursor: 'nwse-resize',
-              backgroundColor: 'rgba(0,0,0,0.1)',
-              borderTopLeftRadius: '5px',
-            }}
-            onMouseDown={(e) => handleMouseDown(e, 'resize')}
-          />
+                Desmos Calculator
+                <button
+                onClick={() => setShowDesmos(false)} // Close button
+                style={{
+                    background: 'none',
+                    border: 'none',
+                    fontSize: '18px',
+                    cursor: 'pointer',
+                    color: '#666'
+                }}
+                >
+                &times;
+                </button>
+            </div>
+            <iframe
+                src="https://www.desmos.com/calculator"
+                width="100%"
+                height="100%"
+                style={{ border: 'none' }}
+                title="Desmos Calculator"
+            />
+            {/* Resize handle */}
+            <div
+                style={{
+                position: 'absolute',
+                bottom: 0,
+                right: 0,
+                width: '15px',
+                height: '15px',
+                cursor: 'nwse-resize', // Diagonal resize cursor
+                backgroundColor: 'rgba(0,0,0,0.1)',
+                borderTopLeftRadius: '5px',
+                }}
+                onMouseDown={(e) => handleMouseDown(e, 'resize')}
+            />
         </div>
       )}
     </div>
